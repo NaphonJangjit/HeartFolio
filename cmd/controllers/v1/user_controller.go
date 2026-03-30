@@ -19,6 +19,7 @@ type User struct {
 	ID       bson.ObjectID `bson:"_id,omitempty" json:"id"`
 	Email    string        `bson:"email" json:"email"`
 	Password string        `bson:"password" json:"-"`
+	Role     string        `bson:"role" json:"role"`
 }
 
 var jwtSecret []byte
@@ -32,6 +33,7 @@ func SetJWTSecret(secret []byte) {
 type Claims struct {
 	UserID string `json:"user_id"`
 	Email  string `json:"email"`
+	Role   string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -39,6 +41,7 @@ func generateToken(user *User) (string, error) {
 	claims := Claims{
 		UserID: user.ID.Hex(),
 		Email:  user.Email,
+		Role:   user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(tokenExpiry)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -87,7 +90,19 @@ func AuthMiddleware(next http.Handler) http.Handler {
 
 		ctx := context.WithValue(r.Context(), "userID", claims.UserID)
 		ctx = context.WithValue(ctx, "email", claims.Email)
+		ctx = context.WithValue(ctx, "role", claims.Role)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func AdminAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		role := r.Context().Value("role")
+		if role == nil || role != "admin" {
+			webhttp.ErrorJSON(w, http.StatusForbidden, "admin access required")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -133,6 +148,7 @@ func (c *UserController) Register(w http.ResponseWriter, r *http.Request) {
 	user := &User{
 		Email:    req.Email,
 		Password: string(hashed),
+		Role:     "user",
 	}
 	_, err = c.repo.InsertOne(r.Context(), user)
 	if err != nil {
@@ -150,6 +166,7 @@ func (c *UserController) Register(w http.ResponseWriter, r *http.Request) {
 		"token": token,
 		"email": user.Email,
 		"id":    user.ID.Hex(),
+		"role":  user.Role,
 	})
 }
 
@@ -192,6 +209,7 @@ func (c *UserController) Login(w http.ResponseWriter, r *http.Request) {
 		"token": token,
 		"email": user.Email,
 		"id":    user.ID.Hex(),
+		"role":  user.Role,
 	})
 }
 
@@ -211,6 +229,7 @@ func (c *UserController) Me(w http.ResponseWriter, r *http.Request) {
 		webhttp.JSON(w, http.StatusOK, map[string]string{
 			"id":    user.ID.Hex(),
 			"email": user.Email,
+			"role":  user.Role,
 		})
 		return
 	}
@@ -228,6 +247,7 @@ func (c *UserController) Me(w http.ResponseWriter, r *http.Request) {
 			data := map[string]string{
 				"id":    user.ID.Hex(),
 				"email": user.Email,
+				"role":  user.Role,
 			}
 			jsonBytes, err := json.Marshal(data)
 			if err != nil {

@@ -6,13 +6,13 @@ import (
 	"os"
 
 	v1 "github.com/NaphonJangjit/HeartFolio/cmd/controllers/v1"
+	"github.com/NaphonJangjit/HeartFolio/cmd/controllers/v1/admin"
 	"github.com/NaphonJangjit/HeartFolio/internal/db/mongo"
 	redisDB "github.com/NaphonJangjit/HeartFolio/internal/db/redis"
 	"github.com/NaphonJangjit/HeartFolio/internal/webhttp"
 )
 
 func main() {
-	// 1. Load configuration
 	jwtSecret := []byte(os.Getenv("JWT_SECRET"))
 	if len(jwtSecret) == 0 {
 		log.Fatal("JWT_SECRET environment variable not set")
@@ -42,8 +42,18 @@ func main() {
 	defer mongoClient.Close()
 
 	db := mongoClient.Database(dbName)
+
 	usersColl := db.Collection("users")
+	badgesColl := db.Collection("badges")
+	userBadgesColl := db.Collection("user_badges")
+
 	userRepo := mongo.NewRepository[v1.User](usersColl)
+	badgeRepo := mongo.NewRepository[v1.Badge](badgesColl)
+	userBadgeRepo := mongo.NewRepository[v1.UserBadge](userBadgesColl)
+
+	if err := v1.EnsureBadgeIndexes(badgesColl.Col, userBadgesColl.Col); err != nil {
+		log.Printf("Warning: failed to create badge indexes: %v", err)
+	}
 
 	var redisRepo *redisDB.Repository
 	redisClient, err := redisDB.Connect(redisAddr, redisPassword, redisDBIndex)
@@ -61,7 +71,7 @@ func main() {
 		w.Write([]byte("pong"))
 	})
 
-	app.Register("/api/v1", v1API(userRepo, redisRepo))
+	app.Register("/api/v1", v1API(userRepo, badgeRepo, userBadgeRepo, redisRepo))
 
 	log.Println("Server starting on :8080")
 	if err := http.ListenAndServe(":8080", app); err != nil {
@@ -69,12 +79,26 @@ func main() {
 	}
 }
 
-func v1API(userRepo *mongo.Repository[v1.User], redisRepo *redisDB.Repository) *webhttp.Router {
+func v1API(
+	userRepo *mongo.Repository[v1.User],
+	badgeRepo *mongo.Repository[v1.Badge],
+	userBadgeRepo *mongo.Repository[v1.UserBadge],
+	redisRepo *redisDB.Repository,
+) *webhttp.Router {
 	r := webhttp.New()
 
 	userCtrl := v1.NewUserController(userRepo, redisRepo)
 	r.Register("/users", userCtrl.Router())
 
+	badgeCtrl := v1.NewBadgeController(badgeRepo, userBadgeRepo, userRepo)
+	r.Register("/badges", badgeCtrl.Router())
+
+	adminBadgeCtrl := admin.NewAdminBadgeController(badgeRepo, userBadgeRepo, userRepo)
+	adminRouter := webhttp.New()
+	adminRouter.Use(v1.AuthMiddleware)
+	adminRouter.Use(v1.AdminAuthMiddleware)
+	adminRouter.Register("/badges", adminBadgeCtrl.Router())
+	r.Register("/admin", adminRouter)
 
 	return r
 }

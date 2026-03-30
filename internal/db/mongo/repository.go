@@ -54,7 +54,15 @@ func (r *Repository[T]) UpdateByID(ctx context.Context, id interface{}, update i
     return err
 }
 
+func (r *Repository[T]) UpdateOne(ctx context.Context, filter interface{}, update interface{}) (*mongo.UpdateResult, error) {
+    return r.coll.Col.UpdateOne(ctx, filter, update)
+}
+
 func (r *Repository[T]) DeleteByID(ctx context.Context, id interface{}) error {
     _, err := r.coll.DeleteByID(ctx, id)
     return err
+}
+
+func (r *Repository[T]) DeleteOne(ctx context.Context, filter interface{}) (*mongo.DeleteResult, error) {
+    return r.coll.Col.DeleteOne(ctx, filter)
 }
