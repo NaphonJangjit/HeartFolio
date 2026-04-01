@@ -127,9 +127,13 @@ func (r *Router) wrapHandler(handler http.Handler) http.Handler {
 func JSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
+	if err := encodeJSON(w, data); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+func encodeJSON(w http.ResponseWriter, data interface{}) error {
+	return json.NewEncoder(w).Encode(data)
 }
 
 func ReadJSON(r *http.Request, data interface{}) error {

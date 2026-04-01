@@ -1,0 +1,5 @@
+.git
+.env
+*.exe
+server.exe
+docs/

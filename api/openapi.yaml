@@ -1,0 +1,1405 @@
+openapi: 3.0.3
+info:
+  title: HeartFolio API
+  description: |
+    HeartFolio transforms emotional pain and healing processes into verifiable soft-skill assets.
+
+    ## JSON:API
+
+    All endpoints conform to the [JSON:API v1.0](https://jsonapi.org/) specification.
+
+    **Content-Type:** `application/vnd.api+json`
+
+    ### Response envelope
+
+    Every response is wrapped in a top-level `data` object (single resource) or `data` array (collection).
+
+    ```json
+    { "data": { "type": "users", "id": "abc123", "attributes": { ... } } }
+    ```
+
+    ### Error envelope
+
+    All errors return an `errors` array instead of `data`.
+
+    ```json
+    { "errors": [{ "status": "404", "title": "Not Found", "detail": "badge not found" }] }
+    ```
+
+    ### Relationships
+
+    Resources that embed related data include a `relationships` key whose value is a full
+    resource object (not just a linkage), making it a single-request pattern.
+
+    ### Authentication
+
+    Protected endpoints require `Authorization: Bearer <token>`.
+    Obtain a token from `POST /api/v1/users/login` or `POST /api/v1/users/register`.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Health
+    description: Health check
+  - name: Users
+    description: Registration, login, profile
+  - name: Badges
+    description: Badge library and user badge management
+  - name: Quests
+    description: Quest library, adaptive quests, quest lifecycle
+  - name: "Admin: Badges"
+    description: Admin badge management (requires admin role)
+  - name: "Admin: Quests"
+    description: Admin quest management (requires admin role)
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ── Reusable schemas ──────────────────────────────────────────────────────
+
+  schemas:
+
+    # ── JSON:API primitives ──────────────────────────────────────────
+
+    ErrorObject:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "404"
+        title:
+          type: string
+          example: "Not Found"
+        detail:
+          type: string
+          example: "badge not found"
+
+    ErrorDocument:
+      type: object
+      required: [errors]
+      properties:
+        errors:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErrorObject"
+
+    # ── Attribute bags ────────────────────────────────────────────────
+
+    UserAttributes:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        role:
+          type: string
+          enum: [user, admin]
+          example: "user"
+        exp:
+          type: integer
+          format: int64
+          example: 250
+        level:
+          type: integer
+          format: int32
+          example: 3
+
+    AuthAttributes:
+      allOf:
+        - $ref: "#/components/schemas/UserAttributes"
+        - type: object
+          properties:
+            token:
+              type: string
+              example: "eyJhbGciOiJIUzI1NiIs..."
+
+    BadgeAttributes:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Burnout Survivor"
+        description:
+          type: string
+          example: "Awarded for surviving a burnout period"
+        category:
+          type: string
+          example: "resilience"
+        max_level:
+          type: integer
+          format: int32
+          example: 5
+        criteria:
+          type: string
+          example: "Complete 3 self-care quests"
+        icon:
+          type: string
+          example: "https://example.com/icons/burnout.png"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserBadgeAttributes:
+      type: object
+      properties:
+        level:
+          type: integer
+          format: int32
+          example: 2
+        earned_at:
+          type: string
+          format: date-time
+        last_updated:
+          type: string
+          format: date-time
+
+    SkillStatsAttributes:
+      type: object
+      additionalProperties:
+        type: integer
+        format: int32
+      example:
+        resilience: 8
+        empathy: 5
+        self-care: 3
+
+    QuestAttributes:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Solitude Strength"
+        description:
+          type: string
+          example: "Practice being comfortable alone for 30 minutes"
+        category:
+          type: string
+          example: "self-care"
+        exp_reward:
+          type: integer
+          format: int64
+          example: 50
+        mood_tags:
+          type: array
+          items:
+            type: string
+          example: ["lonely", "anxious"]
+        difficulty:
+          type: string
+          enum: [easy, medium, hard]
+          example: "easy"
+        estimated_duration:
+          type: integer
+          format: int32
+          description: Duration in minutes
+          example: 30
+        badge_level:
+          type: integer
+          format: int32
+          description: Badge level awarded on completion (0 = no badge)
+          example: 1
+        is_active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    UserQuestAttributes:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [active, completed, abandoned]
+          example: "active"
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        exp_earned:
+          type: integer
+          format: int64
+          example: 50
+
+    # ── Resource objects ───────────────────────────────────────────────
+
+    UserResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [users]
+        id:
+          type: string
+          example: "665f1a2b3c4d5e6f7a8b9c0d"
+        attributes:
+          $ref: "#/components/schemas/UserAttributes"
+
+    AuthResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [users]
+        id:
+          type: string
+          example: "665f1a2b3c4d5e6f7a8b9c0d"
+        attributes:
+          $ref: "#/components/schemas/AuthAttributes"
+
+    BadgeResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [badges]
+        id:
+          type: string
+          example: "665f1a2b3c4d5e6f7a8b9c0d"
+        attributes:
+          $ref: "#/components/schemas/BadgeAttributes"
+
+    UserBadgeResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [user-badges]
+        id:
+          type: string
+          example: "665f1a2b3c4d5e6f7a8b9c0d"
+        attributes:
+          $ref: "#/components/schemas/UserBadgeAttributes"
+        relationships:
+          type: object
+          properties:
+            badge:
+              type: object
+              properties:
+                data:
+                  $ref: "#/components/schemas/BadgeResource"
+
+    SkillStatsResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [skill-stats]
+        id:
+          type: string
+          description: The user ID
+          example: "665f1a2b3c4d5e6f7a8b9c0d"
+        attributes:
+          $ref: "#/components/schemas/SkillStatsAttributes"
+
+    QuestResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [quests]
+        id:
+          type: string
+          example: "665f1a2b3c4d5e6f7a8b9c0d"
+        attributes:
+          $ref: "#/components/schemas/QuestAttributes"
+
+    UserQuestResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [user-quests]
+        id:
+          type: string
+          example: "665f1a2b3c4d5e6f7a8b9c0d"
+        attributes:
+          $ref: "#/components/schemas/UserQuestAttributes"
+
+    UserQuestDetailResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [user-quests]
+        id:
+          type: string
+        attributes:
+          $ref: "#/components/schemas/UserQuestAttributes"
+        relationships:
+          type: object
+          properties:
+            quest:
+              type: object
+              properties:
+                data:
+                  $ref: "#/components/schemas/QuestResource"
+
+    MessageResource:
+      type: object
+      properties:
+        type:
+          type: string
+          example: "badges"
+        id:
+          type: string
+        attributes:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "operation successful"
+
+    # ── Top-level documents ────────────────────────────────────────────
+
+    UserDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/UserResource"
+
+    AuthDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/AuthResource"
+
+    BadgeDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/BadgeResource"
+
+    BadgeCollectionDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/BadgeResource"
+
+    UserBadgeCollectionDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserBadgeResource"
+
+    SkillStatsDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/SkillStatsResource"
+
+    QuestDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/QuestResource"
+
+    QuestCollectionDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuestResource"
+
+    UserQuestDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/UserQuestResource"
+
+    UserQuestDetailCollectionDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserQuestDetailResource"
+
+    MessageDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/MessageResource"
+
+  # ── Reusable responses ─────────────────────────────────────────────────────
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/vnd.api+json:
+          schema:
+            $ref: "#/components/schemas/ErrorDocument"
+          example:
+            errors:
+              - status: "401"
+                title: "Unauthorized"
+                detail: "missing authorization header"
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/vnd.api+json:
+          schema:
+            $ref: "#/components/schemas/ErrorDocument"
+          example:
+            errors:
+              - status: "403"
+                title: "Forbidden"
+                detail: "admin access required"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/vnd.api+json:
+          schema:
+            $ref: "#/components/schemas/ErrorDocument"
+          example:
+            errors:
+              - status: "404"
+                title: "Not Found"
+                detail: "resource not found"
+
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/vnd.api+json:
+          schema:
+            $ref: "#/components/schemas/ErrorDocument"
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+
+paths:
+
+  # ── Health ─────────────────────────────────────────────────────────────────
+
+  /ping:
+    get:
+      tags: [Health]
+      summary: Health check
+      responses:
+        "200":
+          description: Service is running
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: pong
+
+  # ── Users ──────────────────────────────────────────────────────────────────
+
+  /api/v1/users/register:
+    post:
+      tags: [Users]
+      summary: Register a new user
+      description: Creates a new account and returns a JWT token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+                password:
+                  type: string
+                  format: password
+                  example: "secret123"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/AuthDocument"
+              example:
+                data:
+                  type: users
+                  id: "665f1a2b3c4d5e6f7a8b9c0d"
+                  attributes:
+                    email: "user@example.com"
+                    role: "user"
+                    token: "eyJhbGciOiJIUzI1NiIs..."
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: User already exists
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/ErrorDocument"
+
+  /api/v1/users/login:
+    post:
+      tags: [Users]
+      summary: Login
+      description: Validates credentials and returns a JWT token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/AuthDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/users/me:
+    get:
+      tags: [Users]
+      summary: Get current user profile
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/UserDocument"
+              example:
+                data:
+                  type: users
+                  id: "665f1a2b3c4d5e6f7a8b9c0d"
+                  attributes:
+                    email: "user@example.com"
+                    role: "user"
+                    exp: 250
+                    level: 3
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Badges (public) ────────────────────────────────────────────────────────
+
+  /api/v1/badges/:
+    get:
+      tags: [Badges]
+      summary: List all badges
+      responses:
+        "200":
+          description: Badge collection
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/BadgeCollectionDocument"
+
+  /api/v1/badges/{id}:
+    get:
+      tags: [Badges]
+      summary: Get badge by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Badge
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/BadgeDocument"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/badges/users/{userID}/badges:
+    get:
+      tags: [Badges]
+      summary: Get badges for a specific user
+      parameters:
+        - name: userID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User badge collection with embedded badge details
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/UserBadgeCollectionDocument"
+              example:
+                data:
+                  - type: user-badges
+                    id: "abc"
+                    attributes:
+                      level: 2
+                      earned_at: "2024-01-01T00:00:00Z"
+                      last_updated: "2024-01-01T00:00:00Z"
+                    relationships:
+                      badge:
+                        data:
+                          type: badges
+                          id: "def"
+                          attributes:
+                            name: "Burnout Survivor"
+                            category: "resilience"
+                            max_level: 5
+
+  /api/v1/badges/users/{userID}/skill-stats:
+    get:
+      tags: [Badges]
+      summary: Get skill stats for a specific user
+      parameters:
+        - name: userID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Skill stats aggregated by badge category
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/SkillStatsDocument"
+              example:
+                data:
+                  type: skill-stats
+                  id: "665f1a2b3c4d5e6f7a8b9c0d"
+                  attributes:
+                    resilience: 8
+                    empathy: 5
+                    self-care: 3
+
+  # ── Badges (authenticated) ─────────────────────────────────────────────────
+
+  /api/v1/badges/{id}/award:
+    post:
+      tags: [Badges]
+      summary: Award a badge to yourself
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                level:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  default: 1
+                  example: 1
+      responses:
+        "200":
+          description: Badge awarded or already at level
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/MessageDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/badges/me/badges:
+    get:
+      tags: [Badges]
+      summary: Get my badges
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Current user's badge collection
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/UserBadgeCollectionDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/badges/me/skill-stats:
+    get:
+      tags: [Badges]
+      summary: Get my skill stats
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Current user's skill stats
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/SkillStatsDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Quests (public) ────────────────────────────────────────────────────────
+
+  /api/v1/quests/:
+    get:
+      tags: [Quests]
+      summary: List all active quests
+      responses:
+        "200":
+          description: Quest collection
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/QuestCollectionDocument"
+
+  /api/v1/quests/{id}:
+    get:
+      tags: [Quests]
+      summary: Get quest by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Quest
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/QuestDocument"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/quests/mood/{mood}:
+    get:
+      tags: [Quests]
+      summary: Adaptive quests by mood tag
+      description: |
+        Returns active quests whose `mood_tags` array contains the given mood.
+        This powers the **Adaptive Quest** system — the frontend passes the user's
+        current emotional state (e.g. `lonely`, `anxious`, `burnout`) and receives
+        a tailored quest list.
+      parameters:
+        - name: mood
+          in: path
+          required: true
+          schema:
+            type: string
+          example: lonely
+      responses:
+        "200":
+          description: Quests matching the mood
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/QuestCollectionDocument"
+
+  # ── Quests (authenticated) ─────────────────────────────────────────────────
+
+  /api/v1/quests/{id}/start:
+    post:
+      tags: [Quests]
+      summary: Start a quest
+      description: |
+        Assigns the quest to the authenticated user with `active` status.
+        A user cannot start the same quest if it is already active.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Quest ID (from the quest library)
+      responses:
+        "201":
+          description: UserQuest created
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/UserQuestDocument"
+              example:
+                data:
+                  type: user-quests
+                  id: "abc123"
+                  attributes:
+                    status: active
+                    started_at: "2024-01-01T10:00:00Z"
+                    completed_at: null
+                    exp_earned: 0
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Quest already active for this user
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/ErrorDocument"
+
+  /api/v1/quests/{userQuestID}/complete:
+    post:
+      tags: [Quests]
+      summary: Complete a quest
+      description: |
+        Marks the UserQuest as `completed` and triggers the **Reward Loop**:
+        1. Awards `exp_reward` EXP to the user
+        2. Recalculates user level (100 EXP = 1 level)
+        3. If the quest has a linked `badge_id`, awards or upgrades that badge
+
+        The `id` here is the **UserQuest ID** (returned by the start endpoint),
+        not the Quest library ID.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: userQuestID
+          in: path
+          required: true
+          schema:
+            type: string
+          description: UserQuest ID (from start response)
+      responses:
+        "200":
+          description: Quest completed, EXP awarded
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/UserQuestDocument"
+              example:
+                data:
+                  type: user-quests
+                  id: "abc123"
+                  attributes:
+                    status: completed
+                    started_at: "2024-01-01T10:00:00Z"
+                    completed_at: "2024-01-01T10:30:00Z"
+                    exp_earned: 50
+        "400":
+          description: Quest is not in active status
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/ErrorDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/quests/{userQuestID}/abandon:
+    post:
+      tags: [Quests]
+      summary: Abandon a quest
+      description: Marks the UserQuest as `abandoned`. No EXP is awarded.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: userQuestID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Quest abandoned
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/UserQuestDocument"
+        "400":
+          description: Quest is not in active status
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/ErrorDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/quests/me/quests:
+    get:
+      tags: [Quests]
+      summary: Get my quests
+      description: |
+        Returns all UserQuests for the current user, enriched with full quest details
+        in the `relationships.quest` key. Optionally filter by `status`.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, completed, abandoned]
+      responses:
+        "200":
+          description: User quest collection with embedded quest details
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/UserQuestDetailCollectionDocument"
+              example:
+                data:
+                  - type: user-quests
+                    id: "abc123"
+                    attributes:
+                      status: active
+                      started_at: "2024-01-01T10:00:00Z"
+                      completed_at: null
+                      exp_earned: 0
+                    relationships:
+                      quest:
+                        data:
+                          type: quests
+                          id: "def456"
+                          attributes:
+                            name: "Solitude Strength"
+                            category: "self-care"
+                            exp_reward: 50
+                            mood_tags: [lonely]
+                            difficulty: easy
+                            estimated_duration: 30
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Admin: Badges ──────────────────────────────────────────────────────────
+
+  /api/v1/admin/badges/:
+    get:
+      tags: ["Admin: Badges"]
+      summary: List all badges (incl. all categories)
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Badge collection
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/BadgeCollectionDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    post:
+      tags: ["Admin: Badges"]
+      summary: Create a badge
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: "Burnout Survivor"
+                description:
+                  type: string
+                category:
+                  type: string
+                  example: "resilience"
+                max_level:
+                  type: integer
+                  format: int32
+                  example: 5
+                criteria:
+                  type: string
+                icon:
+                  type: string
+      responses:
+        "201":
+          description: Badge created
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/BadgeDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/badges/{id}:
+    get:
+      tags: ["Admin: Badges"]
+      summary: Get badge by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Badge
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/BadgeDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags: ["Admin: Badges"]
+      summary: Update a badge
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                category:
+                  type: string
+                max_level:
+                  type: integer
+                  format: int32
+                criteria:
+                  type: string
+                icon:
+                  type: string
+      responses:
+        "200":
+          description: Badge updated
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/MessageDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: ["Admin: Badges"]
+      summary: Delete a badge
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Badge deleted
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/MessageDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/badges/{badgeId}/award:
+    post:
+      tags: ["Admin: Badges"]
+      summary: Award a badge to any user
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: badgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                  example: "665f1a2b3c4d5e6f7a8b9c0d"
+                level:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  default: 1
+      responses:
+        "200":
+          description: Badge awarded or already at level
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/MessageDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Admin: Quests ──────────────────────────────────────────────────────────
+
+  /api/v1/admin/quests/:
+    get:
+      tags: ["Admin: Quests"]
+      summary: List all quests (including inactive)
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Quest collection
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/QuestCollectionDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    post:
+      tags: ["Admin: Quests"]
+      summary: Create a quest
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, exp_reward]
+              properties:
+                name:
+                  type: string
+                  example: "Solitude Strength"
+                description:
+                  type: string
+                category:
+                  type: string
+                  example: "self-care"
+                exp_reward:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                  example: 50
+                mood_tags:
+                  type: array
+                  items:
+                    type: string
+                  example: [lonely, anxious]
+                difficulty:
+                  type: string
+                  enum: [easy, medium, hard]
+                estimated_duration:
+                  type: integer
+                  format: int32
+                  description: Duration in minutes
+                badge_id:
+                  type: string
+                  description: Optional badge to award on completion
+                badge_level:
+                  type: integer
+                  format: int32
+                  description: Badge level to award on completion
+      responses:
+        "201":
+          description: Quest created
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/QuestDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/v1/admin/quests/{id}:
+    get:
+      tags: ["Admin: Quests"]
+      summary: Get quest by ID
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Quest
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/QuestDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags: ["Admin: Quests"]
+      summary: Update a quest
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                category:
+                  type: string
+                exp_reward:
+                  type: integer
+                  format: int64
+                mood_tags:
+                  type: array
+                  items:
+                    type: string
+                difficulty:
+                  type: string
+                  enum: [easy, medium, hard]
+                estimated_duration:
+                  type: integer
+                  format: int32
+                badge_id:
+                  type: string
+                badge_level:
+                  type: integer
+                  format: int32
+                is_active:
+                  type: boolean
+      responses:
+        "200":
+          description: Quest updated
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/MessageDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: ["Admin: Quests"]
+      summary: Delete a quest
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Quest deleted
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/MessageDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
