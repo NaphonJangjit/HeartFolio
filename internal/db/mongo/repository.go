@@ -5,6 +5,7 @@ import (
     "errors"
 
     "go.mongodb.org/mongo-driver/v2/mongo"
+    "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type Repository[T any] struct {
@@ -47,6 +48,19 @@ func (r *Repository[T]) Find(ctx context.Context, filter interface{}) ([]*T, err
     var results []*T
     err := r.coll.Find(ctx, filter, &results)
     return results, err
+}
+
+func (r *Repository[T]) FindWithOptions(ctx context.Context, filter interface{}, opts ...options.Lister[options.FindOptions]) ([]*T, error) {
+    var results []*T
+    cursor, err := r.coll.Col.Find(ctx, filter, opts...)
+    if err != nil {
+        return nil, err
+    }
+    defer cursor.Close(ctx)
+    if err := cursor.All(ctx, &results); err != nil {
+        return nil, err
+    }
+    return results, nil
 }
 
 func (r *Repository[T]) UpdateByID(ctx context.Context, id interface{}, update interface{}) error {

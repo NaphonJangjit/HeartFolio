@@ -221,3 +221,58 @@ func (s *BadgeService) GetSkillStats(ctx context.Context, userID bson.ObjectID) 
 	}
 	return scores, nil
 }
+
+// GetDetailedSkillStats returns a richer per-category breakdown with individual badge info.
+func (s *BadgeService) GetDetailedSkillStats(ctx context.Context, userID bson.ObjectID) ([]model.SkillStat, error) {
+	filter := bson.M{"user_id": userID}
+	userBadges, err := s.userBadgeRepo.Find(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	if len(userBadges) == 0 {
+		return []model.SkillStat{}, nil
+	}
+
+	badgeIDs := make([]bson.ObjectID, len(userBadges))
+	for i, ub := range userBadges {
+		badgeIDs[i] = ub.BadgeID
+	}
+	badges, err := s.badgeRepo.Find(ctx, bson.M{"_id": bson.M{"$in": badgeIDs}})
+	if err != nil {
+		return nil, err
+	}
+	badgeMap := make(map[bson.ObjectID]*model.Badge)
+	for _, b := range badges {
+		badgeMap[b.ID] = b
+	}
+
+	categoryMap := make(map[string]*model.SkillStat)
+	categoryOrder := []string{}
+
+	for _, ub := range userBadges {
+		badge := badgeMap[ub.BadgeID]
+		if badge == nil {
+			continue
+		}
+		stat, ok := categoryMap[badge.Category]
+		if !ok {
+			stat = &model.SkillStat{Category: badge.Category}
+			categoryMap[badge.Category] = stat
+			categoryOrder = append(categoryOrder, badge.Category)
+		}
+		stat.TotalLevel += ub.Level
+		stat.BadgeCount++
+		stat.Badges = append(stat.Badges, model.SkillBadgeInfo{
+			BadgeID:  badge.ID.Hex(),
+			Name:     badge.Name,
+			Level:    ub.Level,
+			MaxLevel: badge.MaxLevel,
+		})
+	}
+
+	result := make([]model.SkillStat, 0, len(categoryOrder))
+	for _, cat := range categoryOrder {
+		result = append(result, *categoryMap[cat])
+	}
+	return result, nil
+}
