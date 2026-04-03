@@ -81,9 +81,7 @@ func (s *QuestService) Create(ctx context.Context, quest *model.Quest) error {
 	now := time.Now()
 	quest.CreatedAt = now
 	quest.UpdatedAt = now
-	if quest.IsActive == false {
-		quest.IsActive = true
-	}
+	quest.IsActive = true
 	_, err := s.questRepo.InsertOne(ctx, quest)
 	return err
 }
