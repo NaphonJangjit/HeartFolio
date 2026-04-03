@@ -31,6 +31,14 @@ info:
     Resources that embed related data include a `relationships` key whose value is a full
     resource object (not just a linkage), making it a single-request pattern.
 
+    ### Pagination
+
+    Collection endpoints support pagination via query parameters:
+    - `page[offset]` — number of items to skip (default: 0)
+    - `page[limit]` — max items to return (default: 20, max: 100)
+
+    Paginated responses include a `meta` object: `{ "total", "offset", "limit" }`.
+
     ### Authentication
 
     Protected endpoints require `Authorization: Bearer <token>`.
@@ -45,7 +53,9 @@ tags:
   - name: Health
     description: Health check
   - name: Users
-    description: Registration, login, profile
+    description: Registration, login, profile, privacy, mood tracking
+  - name: Portfolio
+    description: Emotional portfolio — aggregated profile with skills, badges, and mood
   - name: Badges
     description: Badge library and user badge management
   - name: Quests
@@ -92,6 +102,19 @@ components:
 
     # ── Attribute bags ────────────────────────────────────────────────
 
+    PrivacySettings:
+      type: object
+      properties:
+        show_badges:
+          type: boolean
+          example: true
+        show_stats:
+          type: boolean
+          example: true
+        show_quests:
+          type: boolean
+          example: true
+
     UserAttributes:
       type: object
       properties:
@@ -111,6 +134,12 @@ components:
           type: integer
           format: int32
           example: 3
+        tier:
+          type: string
+          enum: [bronze, silver, gold, platinum, diamond]
+          example: "silver"
+        privacy:
+          $ref: "#/components/schemas/PrivacySettings"
 
     AuthAttributes:
       allOf:
@@ -164,15 +193,95 @@ components:
           type: string
           format: date-time
 
+    SkillBadgeInfo:
+      type: object
+      properties:
+        badge_id:
+          type: string
+        name:
+          type: string
+          example: "Burnout Survivor"
+        level:
+          type: integer
+          format: int32
+          example: 2
+        max_level:
+          type: integer
+          format: int32
+          example: 5
+
     SkillStatsAttributes:
       type: object
-      additionalProperties:
-        type: integer
-        format: int32
-      example:
-        resilience: 8
-        empathy: 5
-        self-care: 3
+      properties:
+        category:
+          type: string
+          example: "resilience"
+        total_level:
+          type: integer
+          format: int32
+          example: 8
+        badge_count:
+          type: integer
+          format: int32
+          example: 3
+        badges:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillBadgeInfo"
+
+    MoodEntryAttributes:
+      type: object
+      properties:
+        mood:
+          type: string
+          example: "anxious"
+        note:
+          type: string
+          example: "Feeling overwhelmed today"
+        created_at:
+          type: string
+          format: date-time
+
+    QuestSummary:
+      type: object
+      properties:
+        total_started:
+          type: integer
+          format: int32
+          example: 10
+        total_completed:
+          type: integer
+          format: int32
+          example: 7
+        total_abandoned:
+          type: integer
+          format: int32
+          example: 1
+        total_exp_earned:
+          type: integer
+          format: int64
+          example: 350
+
+    PortfolioAttributes:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        level:
+          type: integer
+          format: int32
+        exp:
+          type: integer
+          format: int64
+        tier:
+          type: string
+          enum: [bronze, silver, gold, platinum, diamond]
+        total_badges:
+          type: integer
+          format: int32
+        quest_summary:
+          $ref: "#/components/schemas/QuestSummary"
 
     QuestAttributes:
       type: object
@@ -304,10 +413,61 @@ components:
           enum: [skill-stats]
         id:
           type: string
-          description: The user ID
-          example: "665f1a2b3c4d5e6f7a8b9c0d"
+          description: The category name
+          example: "resilience"
         attributes:
           $ref: "#/components/schemas/SkillStatsAttributes"
+
+    MoodEntryResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [mood-entries]
+        id:
+          type: string
+        attributes:
+          $ref: "#/components/schemas/MoodEntryAttributes"
+
+    PortfolioResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [portfolios]
+        id:
+          type: string
+          description: The user ID
+        attributes:
+          $ref: "#/components/schemas/PortfolioAttributes"
+        relationships:
+          type: object
+          properties:
+            skill_stats:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/SkillStatsResource"
+            recent_moods:
+              type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/MoodEntryResource"
+
+    PrivacyResource:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [privacy-settings]
+        id:
+          type: string
+        attributes:
+          $ref: "#/components/schemas/PrivacySettings"
 
     QuestResource:
       type: object
@@ -408,12 +568,44 @@ components:
           items:
             $ref: "#/components/schemas/UserBadgeResource"
 
-    SkillStatsDocument:
+    SkillStatsCollectionDocument:
       type: object
       required: [data]
       properties:
         data:
-          $ref: "#/components/schemas/SkillStatsResource"
+          type: array
+          items:
+            $ref: "#/components/schemas/SkillStatsResource"
+
+    MoodEntryDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/MoodEntryResource"
+
+    MoodEntryCollectionDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/MoodEntryResource"
+
+    PortfolioDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/PortfolioResource"
+
+    PrivacyDocument:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: "#/components/schemas/PrivacyResource"
 
     QuestDocument:
       type: object
@@ -453,6 +645,29 @@ components:
       properties:
         data:
           $ref: "#/components/schemas/MessageResource"
+
+  # ── Reusable parameters ────────────────────────────────────────────────────
+
+  parameters:
+    PageOffset:
+      name: "page[offset]"
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+      description: Number of items to skip
+    PageLimit:
+      name: "page[limit]"
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: Maximum items to return (max 100)
 
   # ── Reusable responses ─────────────────────────────────────────────────────
 
@@ -601,11 +816,12 @@ paths:
     get:
       tags: [Users]
       summary: Get current user profile
+      description: Returns profile including tier ranking and privacy settings.
       security:
         - BearerAuth: []
       responses:
         "200":
-          description: Current user
+          description: Current user with tier and privacy
           content:
             application/vnd.api+json:
               schema:
@@ -619,8 +835,207 @@ paths:
                     role: "user"
                     exp: 250
                     level: 3
+                    tier: "silver"
+                    privacy:
+                      show_badges: true
+                      show_stats: true
+                      show_quests: true
         "401":
           $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Users]
+      summary: Update profile
+      description: Update the authenticated user's email.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "newemail@example.com"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/UserDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Email already in use
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/ErrorDocument"
+
+  /api/v1/users/me/password:
+    post:
+      tags: [Users]
+      summary: Change password
+      description: Verifies old password and sets a new one. Minimum 8 characters.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [old_password, new_password]
+              properties:
+                old_password:
+                  type: string
+                  format: password
+                new_password:
+                  type: string
+                  format: password
+                  minLength: 8
+      responses:
+        "200":
+          description: Password changed
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/MessageDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Incorrect old password
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/ErrorDocument"
+
+  /api/v1/users/me/privacy:
+    patch:
+      tags: [Users]
+      summary: Update privacy settings
+      description: Controls which parts of your profile are visible to other users.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrivacySettings"
+      responses:
+        "200":
+          description: Privacy settings updated
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/PrivacyDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/users/me/mood:
+    post:
+      tags: [Users]
+      summary: Submit a mood entry
+      description: Records the user's current emotional state. Used for adaptive quest recommendations.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mood]
+              properties:
+                mood:
+                  type: string
+                  example: "anxious"
+                  description: "Mood keyword (e.g. anxious, lonely, burnout, happy)"
+                note:
+                  type: string
+                  example: "Feeling overwhelmed at work"
+      responses:
+        "201":
+          description: Mood entry created
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/MoodEntryDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/users/me/moods:
+    get:
+      tags: [Users]
+      summary: Get my mood history
+      description: Returns all mood entries for the authenticated user, newest first.
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/PageLimit"
+      responses:
+        "200":
+          description: Mood entry collection
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/MoodEntryCollectionDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/users/me/portfolio:
+    get:
+      tags: [Portfolio]
+      summary: Get my emotional portfolio
+      description: |
+        Aggregated view of the authenticated user's profile, badges, skill stats,
+        quest completion summary, tier, and recent moods. This is the main
+        "Emotional Portfolio" endpoint.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Full emotional portfolio
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/PortfolioDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/users/{userID}/portfolio:
+    get:
+      tags: [Portfolio]
+      summary: Get a user's emotional portfolio
+      description: |
+        Public view of another user's portfolio. Respects privacy settings —
+        returns 403 if the user has hidden their badges and stats.
+      parameters:
+        - name: userID
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User's emotional portfolio
+          content:
+            application/vnd.api+json:
+              schema:
+                $ref: "#/components/schemas/PortfolioDocument"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ── Badges (public) ────────────────────────────────────────────────────────
 
@@ -628,6 +1043,9 @@ paths:
     get:
       tags: [Badges]
       summary: List all badges
+      parameters:
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/PageLimit"
       responses:
         "200":
           description: Badge collection
@@ -660,6 +1078,7 @@ paths:
     get:
       tags: [Badges]
       summary: Get badges for a specific user
+      description: Respects the user's privacy settings — returns 403 if badges are hidden.
       parameters:
         - name: userID
           in: path
@@ -673,28 +1092,18 @@ paths:
             application/vnd.api+json:
               schema:
                 $ref: "#/components/schemas/UserBadgeCollectionDocument"
-              example:
-                data:
-                  - type: user-badges
-                    id: "abc"
-                    attributes:
-                      level: 2
-                      earned_at: "2024-01-01T00:00:00Z"
-                      last_updated: "2024-01-01T00:00:00Z"
-                    relationships:
-                      badge:
-                        data:
-                          type: badges
-                          id: "def"
-                          attributes:
-                            name: "Burnout Survivor"
-                            category: "resilience"
-                            max_level: 5
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /api/v1/badges/users/{userID}/skill-stats:
     get:
       tags: [Badges]
-      summary: Get skill stats for a specific user
+      summary: Get detailed skill stats for a specific user
+      description: |
+        Returns per-category skill breakdown with individual badge contributions.
+        Respects the user's privacy settings — returns 403 if stats are hidden.
       parameters:
         - name: userID
           in: path
@@ -703,19 +1112,13 @@ paths:
             type: string
       responses:
         "200":
-          description: Skill stats aggregated by badge category
+          description: Detailed skill stats by category
           content:
             application/vnd.api+json:
               schema:
-                $ref: "#/components/schemas/SkillStatsDocument"
-              example:
-                data:
-                  type: skill-stats
-                  id: "665f1a2b3c4d5e6f7a8b9c0d"
-                  attributes:
-                    resilience: 8
-                    empathy: 5
-                    self-care: 3
+                $ref: "#/components/schemas/SkillStatsCollectionDocument"
+        "403":
+          $ref: "#/components/responses/Forbidden"
 
   # ── Badges (authenticated) ─────────────────────────────────────────────────
 
@@ -760,6 +1163,9 @@ paths:
       summary: Get my badges
       security:
         - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/PageLimit"
       responses:
         "200":
           description: Current user's badge collection
@@ -773,16 +1179,16 @@ paths:
   /api/v1/badges/me/skill-stats:
     get:
       tags: [Badges]
-      summary: Get my skill stats
+      summary: Get my detailed skill stats
       security:
         - BearerAuth: []
       responses:
         "200":
-          description: Current user's skill stats
+          description: Current user's detailed skill stats by category
           content:
             application/vnd.api+json:
               schema:
-                $ref: "#/components/schemas/SkillStatsDocument"
+                $ref: "#/components/schemas/SkillStatsCollectionDocument"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -792,6 +1198,9 @@ paths:
     get:
       tags: [Quests]
       summary: List all active quests
+      parameters:
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/PageLimit"
       responses:
         "200":
           description: Quest collection
@@ -984,6 +1393,8 @@ paths:
           schema:
             type: string
             enum: [active, completed, abandoned]
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/PageLimit"
       responses:
         "200":
           description: User quest collection with embedded quest details
@@ -1023,6 +1434,9 @@ paths:
       summary: List all badges (incl. all categories)
       security:
         - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/PageLimit"
       responses:
         "200":
           description: Badge collection
@@ -1224,6 +1638,9 @@ paths:
       summary: List all quests (including inactive)
       security:
         - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageOffset"
+        - $ref: "#/components/parameters/PageLimit"
       responses:
         "200":
           description: Quest collection
