@@ -10,13 +10,27 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
+func skillStatResource(ss model.SkillStat) webhttp.Resource {
+	return webhttp.Resource{
+		Type: "skill-stats",
+		ID:   ss.Category,
+		Attributes: map[string]interface{}{
+			"category":    ss.Category,
+			"total_level": ss.TotalLevel,
+			"badge_count": ss.BadgeCount,
+			"badges":      ss.Badges,
+		},
+	}
+}
+
 type BadgeHandler struct {
 	svc       *service.BadgeService
+	userSvc   *service.UserService
 	jwtSecret []byte
 }
 
-func NewBadgeHandler(svc *service.BadgeService, jwtSecret []byte) *BadgeHandler {
-	return &BadgeHandler{svc: svc, jwtSecret: jwtSecret}
+func NewBadgeHandler(svc *service.BadgeService, userSvc *service.UserService, jwtSecret []byte) *BadgeHandler {
+	return &BadgeHandler{svc: svc, userSvc: userSvc, jwtSecret: jwtSecret}
 }
 
 func badgeResource(b *model.Badge) webhttp.Resource {
@@ -61,7 +75,7 @@ func (h *BadgeHandler) ListBadges(w http.ResponseWriter, r *http.Request) {
 	for i, b := range badges {
 		resources[i] = badgeResource(b)
 	}
-	webhttp.RespondMany(w, http.StatusOK, resources)
+	webhttp.RespondManyPaginated(w, http.StatusOK, resources, webhttp.ParsePage(r))
 }
 
 func (h *BadgeHandler) GetBadge(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +141,15 @@ func (h *BadgeHandler) GetUserBadgesByID(w http.ResponseWriter, r *http.Request)
 		webhttp.RespondError(w, http.StatusBadRequest, "invalid user id")
 		return
 	}
+	user, err := h.userSvc.GetByID(r.Context(), userID.Hex())
+	if err != nil || user == nil {
+		webhttp.RespondError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if !user.Privacy.ShowBadges {
+		webhttp.RespondError(w, http.StatusForbidden, "this user's badges are private")
+		return
+	}
 	h.respondUserBadges(w, r, userID)
 }
 
@@ -134,6 +157,15 @@ func (h *BadgeHandler) GetUserSkillStatsByID(w http.ResponseWriter, r *http.Requ
 	userID, err := bson.ObjectIDFromHex(webhttp.Param(r, "userID"))
 	if err != nil {
 		webhttp.RespondError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	user, err := h.userSvc.GetByID(r.Context(), userID.Hex())
+	if err != nil || user == nil {
+		webhttp.RespondError(w, http.StatusNotFound, "user not found")
+		return
+	}
+	if !user.Privacy.ShowStats {
+		webhttp.RespondError(w, http.StatusForbidden, "this user's stats are private")
 		return
 	}
 	h.respondSkillStats(w, r, userID)
@@ -167,20 +199,20 @@ func (h *BadgeHandler) respondUserBadges(w http.ResponseWriter, r *http.Request,
 	for i, d := range details {
 		resources[i] = userBadgeResource(d)
 	}
-	webhttp.RespondMany(w, http.StatusOK, resources)
+	webhttp.RespondManyPaginated(w, http.StatusOK, resources, webhttp.ParsePage(r))
 }
 
 func (h *BadgeHandler) respondSkillStats(w http.ResponseWriter, r *http.Request, userID bson.ObjectID) {
-	stats, err := h.svc.GetSkillStats(r.Context(), userID)
+	stats, err := h.svc.GetDetailedSkillStats(r.Context(), userID)
 	if err != nil {
 		webhttp.RespondError(w, http.StatusInternalServerError, "failed to fetch stats")
 		return
 	}
-	webhttp.RespondOne(w, http.StatusOK, webhttp.Resource{
-		Type:       "skill-stats",
-		ID:         userID.Hex(),
-		Attributes: stats,
-	})
+	resources := make([]webhttp.Resource, len(stats))
+	for i, ss := range stats {
+		resources[i] = skillStatResource(ss)
+	}
+	webhttp.RespondMany(w, http.StatusOK, resources)
 }
 
 func (h *BadgeHandler) Router() *webhttp.Router {

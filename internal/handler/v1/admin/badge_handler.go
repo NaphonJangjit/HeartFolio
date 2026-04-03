@@ -79,7 +79,7 @@ func (h *BadgeHandler) ListBadges(w http.ResponseWriter, r *http.Request) {
 	for i, b := range badges {
 		resources[i] = badgeResource(b)
 	}
-	webhttp.RespondMany(w, http.StatusOK, resources)
+	webhttp.RespondManyPaginated(w, http.StatusOK, resources, webhttp.ParsePage(r))
 }
 
 func (h *BadgeHandler) GetBadge(w http.ResponseWriter, r *http.Request) {

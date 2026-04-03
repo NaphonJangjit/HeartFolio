@@ -79,7 +79,7 @@ func (h *QuestHandler) ListQuests(w http.ResponseWriter, r *http.Request) {
 	for i, q := range quests {
 		resources[i] = questResource(q)
 	}
-	webhttp.RespondMany(w, http.StatusOK, resources)
+	webhttp.RespondManyPaginated(w, http.StatusOK, resources, webhttp.ParsePage(r))
 }
 
 func (h *QuestHandler) GetQuest(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +115,7 @@ func (h *QuestHandler) ListByMood(w http.ResponseWriter, r *http.Request) {
 	for i, q := range quests {
 		resources[i] = questResource(q)
 	}
-	webhttp.RespondMany(w, http.StatusOK, resources)
+	webhttp.RespondManyPaginated(w, http.StatusOK, resources, webhttp.ParsePage(r))
 }
 
 func (h *QuestHandler) StartQuest(w http.ResponseWriter, r *http.Request) {
@@ -220,7 +220,7 @@ func (h *QuestHandler) GetMyQuests(w http.ResponseWriter, r *http.Request) {
 	for i, d := range details {
 		resources[i] = userQuestDetailResource(d)
 	}
-	webhttp.RespondMany(w, http.StatusOK, resources)
+	webhttp.RespondManyPaginated(w, http.StatusOK, resources, webhttp.ParsePage(r))
 }
 
 func (h *QuestHandler) Router() *webhttp.Router {
